@@ -31,13 +31,15 @@
   "homepage": "https://github.com/mykin-ai/expo-audio-stream#readme",
   "devDependencies": {
     "@types/react": "^18.0.25",
-    "expo-module-scripts": "^3.4.1",
+    "expo-module-scripts": "^3.5.4",
     "expo-modules-core": "^1.11.12",
-    "husky": "^9.0.11"
+    "husky": "^9.0.11",
+    "@expo/config-plugins": "^54.0.2"
   },
   "peerDependencies": {
     "expo": "*",
     "react": "*",
     "react-native": "*"
-  }
+  },
+  "dependencies": {}
 }
