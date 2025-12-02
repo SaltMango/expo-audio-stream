@@ -16,7 +16,8 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ai.mykin.audiostream.dev"
+      "bundleIdentifier": "ai.mykin.audiostream.dev",
+      "deploymentTarget": "15.1"
     },
     "android": {
       "adaptiveIcon": {

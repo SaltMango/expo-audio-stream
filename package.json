@@ -30,11 +30,11 @@
   "license": "MIT",
   "homepage": "https://github.com/mykin-ai/expo-audio-stream#readme",
   "devDependencies": {
-    "@types/react": "^18.0.25",
-    "expo-module-scripts": "^3.5.4",
-    "expo-modules-core": "^1.11.12",
-    "husky": "^9.0.11",
-    "@expo/config-plugins": "^54.0.2"
+    "@types/react": "^18.3.1",
+    "expo-module-scripts": "^4.0.0",
+    "expo-modules-core": "^2.0.0",
+    "husky": "^9.1.4",
+    "@expo/config-plugins": "~9.0.0"
   },
   "peerDependencies": {
     "expo": "*",
