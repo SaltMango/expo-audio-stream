@@ -129,10 +129,10 @@ export class BufferManagerAdaptive implements IAudioBufferManager {
       // Direct play using native module
       try {
         await ExpoPlayAudioStreamModule.playSound(
-          audioData.audioData,
-          this._turnId,
-          this._encoding
-        );
+        audioData.audioData,
+        this._turnId,
+        this._encoding
+      );
       } catch (e) {
         console.error("[SmartBufferManager] Direct play failed", e);
       }

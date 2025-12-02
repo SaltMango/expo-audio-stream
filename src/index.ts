@@ -1,4 +1,4 @@
-import { Subscription } from 'expo-modules-core';
+import type { Subscription } from './events';
 import ExpoPlayAudioStreamModule from './ExpoPlayAudioStreamModule';
 import {
   AudioDataEvent,
@@ -897,6 +897,9 @@ export {
   DEFAULT_RETRY_CONFIG,
   TelemetryCallback,
 };
+
+// Export Subscription type for event handling
+export type { Subscription } from './events';
 
 // Export audio processing modules
 export {
