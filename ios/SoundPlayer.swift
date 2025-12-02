@@ -23,6 +23,9 @@ class SoundPlayer {
     private var audioPlaybackFormat: AVAudioFormat!
     private var config: SoundConfig
     
+    // Audio session interruption handling (equivalent to Android Audio Focus)
+    private var wasPlayingBeforeInterruption: Bool = false
+    
     init(config: SoundConfig = SoundConfig()) {
         self.config = config
         self.audioPlaybackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: config.sampleRate, channels: 1, interleaved: false)
@@ -33,6 +36,65 @@ class SoundPlayer {
             name: AVAudioSession.routeChangeNotification,
             object: nil
         )
+        
+        // Add audio session interruption observer (equivalent to Android Audio Focus)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    /// Handles audio session interruptions (phone calls, Siri, etc.)
+    /// This is the iOS equivalent of Android's Audio Focus handling
+    /// - Parameter notification: The notification object containing interruption information
+    @objc private func handleAudioSessionInterruption(notification: Notification) {
+        guard let info = notification.userInfo,
+              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        
+        switch type {
+        case .began:
+            // Interruption began (phone call, Siri, etc.)
+            Logger.debug("[SoundPlayer] Audio session interruption began")
+            wasPlayingBeforeInterruption = audioPlayerNode?.isPlaying ?? false
+            
+            if wasPlayingBeforeInterruption {
+                audioPlayerNode?.pause()
+            }
+            
+        case .ended:
+            // Interruption ended
+            Logger.debug("[SoundPlayer] Audio session interruption ended")
+            
+            if let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                
+                if options.contains(.shouldResume) && wasPlayingBeforeInterruption {
+                    Logger.debug("[SoundPlayer] Resuming playback after interruption")
+                    do {
+                        try AVAudioSession.sharedInstance().setActive(true)
+                        if !audioEngine.isRunning {
+                            try audioEngine.start()
+                        }
+                        audioPlayerNode?.play()
+                    } catch {
+                        Logger.debug("[SoundPlayer] Failed to resume after interruption: \(error.localizedDescription)")
+                    }
+                }
+            }
+            wasPlayingBeforeInterruption = false
+            
+        @unknown default:
+            break
+        }
     }
     
     /// Handles audio route changes (e.g. headphones connected/disconnected)
@@ -210,6 +272,41 @@ class SoundPlayer {
         }
     }
     
+    /// Configures the audio session based on playback mode
+    /// This is the iOS equivalent of Android's AudioAttributes configuration
+    /// - Throws: Error if audio session configuration fails
+    private func configureAudioSession() throws {
+        let audioSession = AVAudioSession.sharedInstance()
+        
+        switch config.playbackMode {
+        case .conversation, .voiceProcessing:
+            // Use voice chat mode for conversation - enables hardware AEC
+            // This is equivalent to Android's USAGE_VOICE_COMMUNICATION
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
+            Logger.debug("[SoundPlayer] Audio session configured for voice communication (AEC enabled)")
+            
+        case .regular:
+            // Use playback category for regular audio
+            // This is equivalent to Android's USAGE_MEDIA
+            try audioSession.setCategory(
+                .playback,
+                mode: .default,
+                options: []
+            )
+            Logger.debug("[SoundPlayer] Audio session configured for regular playback")
+        }
+        
+        // Set preferred sample rate
+        try audioSession.setPreferredSampleRate(config.sampleRate)
+        
+        // Activate the session
+        try audioSession.setActive(true)
+    }
+    
     /// Sets up the audio engine and player node if not already configured
     /// - Throws: Error if audio engine setup fails
     public func ensureAudioEngineIsSetup() throws {
@@ -220,6 +317,9 @@ class SoundPlayer {
             }
             self.detachOldAvNodesFromEngine()
         }
+        
+        // Configure audio session based on playback mode (equivalent to Android AudioAttributes)
+        try configureAudioSession()
         
         // Create new engine
         self.audioEngine = AVAudioEngine()

@@ -1,5 +1,6 @@
 import { AudioBufferManager } from "./BufferManagerCore";
 import { QualityMonitor } from "./QualityMonitor";
+import ExpoPlayAudioStreamModule from "../ExpoPlayAudioStreamModule";
 import {
   IAudioBufferConfig,
   IAudioPlayPayload,
@@ -9,12 +10,13 @@ import {
   IBufferHealthMetrics,
   Encoding,
   EncodingTypes,
+  IAudioBufferManager,
 } from "../types";
 
 /**
  * Smart buffering manager that automatically adapts to network conditions
  */
-export class BufferManagerAdaptive {
+export class BufferManagerAdaptive implements IAudioBufferManager {
   private _mode: SmartBufferMode;
   private _bufferManager: AudioBufferManager | null = null;
   private _networkMonitor: QualityMonitor;
@@ -25,6 +27,7 @@ export class BufferManagerAdaptive {
   >;
   private _turnId: string;
   private _encoding: Encoding;
+  private _sampleRate: number;
   private _lastDecisionTime: number = 0;
   private _consecutiveProblems: number = 0;
 
@@ -36,6 +39,7 @@ export class BufferManagerAdaptive {
     this._mode = config.mode;
     this._turnId = turnId;
     this._encoding = encoding;
+    this._sampleRate = config.sampleRate ?? 16000;
     this._networkMonitor = new QualityMonitor();
 
     // Set default adaptive thresholds
@@ -55,16 +59,51 @@ export class BufferManagerAdaptive {
     this._evaluateBufferingNeed();
   }
 
+  public enqueueFrames(audioData: IAudioPlayPayload): void {
+    this._processAudioChunk(audioData);
+  }
+
+  public startPlayback(): void {
+    if (this._bufferManager) {
+      this._bufferManager.startPlayback();
+    }
+  }
+
+  public stopPlayback(): void {
+    if (this._bufferManager) {
+      this._bufferManager.stopPlayback();
+    }
+  }
+
+  public destroy(): void {
+    this._disableBuffering();
+  }
+
+  public isPlaying(): boolean {
+    return this._bufferManager?.isPlaying() ?? false;
+  }
+
+  public updateConfig(config: Partial<IAudioBufferConfig>): void {
+    if (this._bufferManager) {
+      this._bufferManager.updateConfig(config);
+    }
+  }
+
+  public applyAdaptiveAdjustments(): void {
+    if (this._bufferManager) {
+      this._bufferManager.applyAdaptiveAdjustments();
+    }
+  }
+
+  public getCurrentBufferMs(): number {
+    return this._bufferManager?.getCurrentBufferMs() ?? 0;
+  }
+
   /**
    * Process an audio chunk, automatically deciding whether to buffer or play directly
    */
-  public async processAudioChunk(
-    audioData: IAudioPlayPayload,
-    directPlayCallback: (
-      data: string,
-      turnId: string,
-      encoding: Encoding
-    ) => Promise<void>
+  private async _processAudioChunk(
+    audioData: IAudioPlayPayload
   ): Promise<void> {
     // Update network conditions from the quality monitor
     this._updateNetworkConditions();
@@ -87,11 +126,16 @@ export class BufferManagerAdaptive {
       if (this._bufferManager) {
         this._disableBuffering();
       }
-      await directPlayCallback(
-        audioData.audioData,
-        this._turnId,
-        this._encoding
-      );
+      // Direct play using native module
+      try {
+        await ExpoPlayAudioStreamModule.playSound(
+          audioData.audioData,
+          this._turnId,
+          this._encoding
+        );
+      } catch (e) {
+        console.error("[SmartBufferManager] Direct play failed", e);
+      }
     }
   }
 
@@ -248,6 +292,7 @@ export class BufferManagerAdaptive {
   private _getBufferConfigForConditions(): Partial<IAudioBufferConfig> {
     const baseConfig: Partial<IAudioBufferConfig> = {
       frameIntervalMs: 20,
+      sampleRate: this._sampleRate,
     };
 
     // Adjust buffer size based on network conditions
@@ -297,7 +342,7 @@ export class BufferManagerAdaptive {
   /**
    * Get current buffer health metrics
    */
-  public getHealthMetrics(): IBufferHealthMetrics | null {
+  public getHealthMetrics(): IBufferHealthMetrics {
     if (this._bufferManager) {
       return this._bufferManager.getHealthMetrics();
     }
@@ -319,13 +364,5 @@ export class BufferManagerAdaptive {
    */
   public isBufferingEnabled(): boolean {
     return this._isBufferingEnabled;
-  }
-
-  /**
-   * Stop and clean up
-   */
-  public destroy(): void {
-    this._disableBuffering();
-    this._networkMonitor.reset();
   }
 }

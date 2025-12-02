@@ -85,6 +85,48 @@ export default function App() {
       </View>
       <Button
         onPress={async () => {
+          // 1. Configure for conversation (Triggers Android Echo Cancellation)
+          await ExpoPlayAudioStream.setSoundConfig({
+            sampleRate: 24000,
+            playbackMode: 'voiceProcessing',
+          });
+
+          console.log('Starting Adaptive Buffered Stream...');
+          // 2. Start adaptive stream with production-ready settings
+          await ExpoPlayAudioStream.startBufferedAudioStream({
+            turnId: 'demo-turn-adaptive',
+            encoding: 'pcm_s16le',
+            bufferConfig: {
+              targetBufferMs: 100, // Low latency for conversation
+              minBufferMs: 50,
+              maxBufferMs: 300,
+              frameIntervalMs: 40,
+            },
+            smartBufferConfig: {
+              mode: 'adaptive',
+              networkConditions: {
+                latency: 50, // Simulated 50ms latency
+                jitter: 20,  // Simulated 20ms jitter
+              },
+            },
+            onBufferHealth: (metrics) => {
+              // Log metrics for monitoring
+              if (metrics.underrunCount > 0) {
+                console.log('⚠️ Buffer Underrun:', metrics);
+              }
+            }
+          });
+          
+          // Simulate receiving chunks (in a real app, these come from WebSocket)
+          await ExpoPlayAudioStream.playAudioBuffered(sampleB, 'demo-turn-adaptive');
+        }}
+        title="Start Conversational Mode (24kHz)"
+      />
+       <View style={{ height: 10, marginBottom: 10 }}>
+        <Text>====================</Text>
+      </View>
+      <Button
+        onPress={async () => {
           if (!isMicrophonePermissionGranted()) {
             const permissionGranted = await requestMicrophonePermission();
             if (!permissionGranted) {

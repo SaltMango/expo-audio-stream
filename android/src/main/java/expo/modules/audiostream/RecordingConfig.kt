@@ -13,10 +13,10 @@ data class RecordingConfig(
      */
     fun validate(): ValidationResult? {
         // Check sample rate
-        if (sampleRate !in listOf(16000, 44100, 48000)) {
+        if (sampleRate !in listOf(16000, 24000, 44100, 48000)) {
             return ValidationResult(
                 "INVALID_SAMPLE_RATE",
-                "Sample rate must be one of 16000, 44100, or 48000 Hz"
+                "Sample rate must be one of 16000, 24000, 44100, or 48000 Hz"
             )
         }
         

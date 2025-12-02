@@ -279,7 +279,9 @@ class ExpoPlayAudioStreamModule : Module(), EventSender {
     }
 
     private fun initializePlaybackManager() {
-        audioPlaybackManager = AudioPlaybackManager(this)
+        val androidContext =
+            appContext.reactContext ?: throw IllegalStateException("Android context not available")
+        audioPlaybackManager = AudioPlaybackManager(androidContext, this)
     }
 
     private fun initializeWavPlayer() {

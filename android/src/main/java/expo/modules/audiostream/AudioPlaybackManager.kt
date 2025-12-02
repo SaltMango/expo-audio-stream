@@ -1,8 +1,12 @@
 package expo.modules.audiostream
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
@@ -47,7 +51,10 @@ data class AudioChunk(
     var isPromiseSettled: Boolean = false
 ) // contains the decoded base64 chunk
 
-class AudioPlaybackManager(private val eventSender: EventSender? = null) {
+class AudioPlaybackManager(
+    private val context: Context,
+    private val eventSender: EventSender? = null
+) {
     private lateinit var processingChannel: Channel<ChunkData>
     private lateinit var playbackChannel: Channel<AudioChunk>
 
@@ -66,12 +73,126 @@ class AudioPlaybackManager(private val eventSender: EventSender? = null) {
     // Current sound configuration
     private var config: SoundConfig = SoundConfig.DEFAULT
     
-    // Specific turnID to ignore sound events (similar to iOS)
-    // Removed: private val suspendSoundEventTurnId: String = "suspend-sound-events"
+    // Audio Focus Management
+    private val audioManager: AudioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var wasPlayingBeforeFocusLoss = false
+    
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d("ExpoPlayStreamModule", "Audio focus gained")
+                hasAudioFocus = true
+                // Resume playback if it was interrupted
+                if (wasPlayingBeforeFocusLoss && !isPlaying) {
+                    restartPlayback()
+                }
+                wasPlayingBeforeFocusLoss = false
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d("ExpoPlayStreamModule", "Audio focus lost permanently")
+                hasAudioFocus = false
+                wasPlayingBeforeFocusLoss = isPlaying
+                if (isPlaying) {
+                    pausePlayback(null, false)
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d("ExpoPlayStreamModule", "Audio focus lost transiently")
+                hasAudioFocus = false
+                wasPlayingBeforeFocusLoss = isPlaying
+                if (isPlaying) {
+                    pausePlayback(null, false)
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d("ExpoPlayStreamModule", "Audio focus loss - ducking")
+                // For voice communication, we don't duck - we pause
+                if (config.playbackMode == PlaybackMode.CONVERSATION || 
+                    config.playbackMode == PlaybackMode.VOICE_PROCESSING) {
+                    wasPlayingBeforeFocusLoss = isPlaying
+                    if (isPlaying) {
+                        pausePlayback(null, false)
+                    }
+                } else {
+                    // For media mode, reduce volume
+                    try {
+                        audioTrack.setVolume(0.3f)
+                    } catch (e: Exception) {
+                        Log.e("ExpoPlayStreamModule", "Error ducking audio: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
 
     init {
         initializeAudioTrack()
         initializeChannels()
+    }
+    
+    /**
+     * Requests audio focus before starting playback
+     * @return true if focus was granted, false otherwise
+     */
+    private fun requestAudioFocus(): Boolean {
+        if (hasAudioFocus) return true
+        
+        val focusResult: Int
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Build AudioAttributes for focus request
+            val usage = when (config.playbackMode) {
+                PlaybackMode.CONVERSATION, PlaybackMode.VOICE_PROCESSING ->
+                    AudioAttributes.USAGE_VOICE_COMMUNICATION
+                else -> AudioAttributes.USAGE_MEDIA
+            }
+            
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(usage)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(audioAttributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build()
+            
+            focusResult = audioManager.requestAudioFocus(audioFocusRequest!!)
+        } else {
+            @Suppress("DEPRECATION")
+            focusResult = audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+        
+        hasAudioFocus = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        Log.d("ExpoPlayStreamModule", "Audio focus request result: $hasAudioFocus")
+        return hasAudioFocus
+    }
+    
+    /**
+     * Abandons audio focus when playback stops
+     */
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let {
+                audioManager.abandonAudioFocusRequest(it)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+        
+        hasAudioFocus = false
+        audioFocusRequest = null
+        Log.d("ExpoPlayStreamModule", "Audio focus abandoned")
     }
 
     private fun initializeAudioTrack() {
@@ -91,17 +212,24 @@ class AudioPlaybackManager(private val eventSender: EventSender? = null) {
 
         // Configure audio attributes based on playback mode
         val audioAttributesBuilder = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
 
-        // Set content type based on playback mode
-        val contentType = when (config.playbackMode) {
-            PlaybackMode.CONVERSATION, PlaybackMode.VOICE_PROCESSING ->
-                AudioAttributes.CONTENT_TYPE_SPEECH
-            else ->
-                AudioAttributes.CONTENT_TYPE_MUSIC
+        // Set content type and usage based on playback mode
+        val contentType: Int
+        val usage: Int
+
+        when (config.playbackMode) {
+            PlaybackMode.CONVERSATION, PlaybackMode.VOICE_PROCESSING -> {
+                contentType = AudioAttributes.CONTENT_TYPE_SPEECH
+                usage = AudioAttributes.USAGE_VOICE_COMMUNICATION
+            }
+            else -> {
+                contentType = AudioAttributes.CONTENT_TYPE_MUSIC
+                usage = AudioAttributes.USAGE_MEDIA
+            }
         }
 
         audioAttributesBuilder.setContentType(contentType)
+        audioAttributesBuilder.setUsage(usage)
 
         audioTrack =
             AudioTrack.Builder()
@@ -153,6 +281,7 @@ class AudioPlaybackManager(private val eventSender: EventSender? = null) {
 
     fun runOnDispose() {
         stopPlayback()
+        abandonAudioFocus()
         processingChannel.close()
         stopProcessingLoop()
         coroutineScope.cancel()
@@ -270,6 +399,11 @@ class AudioPlaybackManager(private val eventSender: EventSender? = null) {
     fun startPlayback(promise: Promise? = null) {
         try {
             if (!isPlaying) {
+                // Request audio focus before starting playback
+                if (!requestAudioFocus()) {
+                    Log.w("ExpoPlayStreamModule", "Could not obtain audio focus, proceeding anyway")
+                }
+                
                 if (::audioTrack.isInitialized && audioTrack.state != AudioTrack.STATE_UNINITIALIZED) {
                     audioTrack.play()
                     isPlaying = true
@@ -361,6 +495,9 @@ class AudioPlaybackManager(private val eventSender: EventSender? = null) {
                 
                 // Reset the segments counter
                 segmentsLeftToPlay = 0
+                
+                // Abandon audio focus
+                abandonAudioFocus()
 
                 Log.d("ExpoPlayStreamModule", "Stopped")
                 promise?.resolve(null)

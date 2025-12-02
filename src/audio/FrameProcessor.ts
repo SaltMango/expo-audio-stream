@@ -2,15 +2,15 @@ import {
   IAudioPlayPayload,
   IAudioFrame,
   IFrameProcessor,
+  AudioDataType,
 } from '../types';
 
 /**
- * Processes base64 PCM audio chunks into timestamped frames.
+ * Processes PCM audio chunks into timestamped frames.
+ * Supports both base64 strings and binary data (Uint8Array/ArrayBuffer) for JSI optimization.
  * Validates input, sanitizes data, estimates duration.
  */
 export class FrameProcessor implements IFrameProcessor {
-  private static readonly _sampleRate = 16000; // 16kHz
-  private static readonly _bytesPerSample = 2; // 16-bit PCM
   private static readonly _maxReasonableChunkSizeBytes =
     64 * 1024; // 64KB safety
   private static readonly _validBase64Regex =
@@ -18,9 +18,21 @@ export class FrameProcessor implements IFrameProcessor {
 
   private _sequenceNumber: number = 0;
   private _frameIntervalMs: number;
+  private _sampleRate: number;
+  private _bytesPerSample: number;
 
-  constructor(frameIntervalMs: number = 20) {
+  constructor(
+    frameIntervalMs: number = 20,
+    sampleRate: number = 16000,
+    bytesPerSample: number = 2
+  ) {
     this._frameIntervalMs = frameIntervalMs;
+    this._sampleRate = sampleRate;
+    this._bytesPerSample = bytesPerSample;
+  }
+
+  public setBytesPerSample(bytes: number): void {
+    this._bytesPerSample = bytes;
   }
 
   /** Parse an audio payload into timestamped frames with validation. */
@@ -32,16 +44,14 @@ export class FrameProcessor implements IFrameProcessor {
     }
 
     try {
-      const sanitizedData = this._sanitizeBase64(
-        payload.audioData
-      );
-      const estimatedDuration =
-        this._calculateDuration(sanitizedData);
+      // Normalize data to base64 string for storage/playback
+      const normalizedData = this._normalizeAudioData(payload.audioData);
+      const estimatedDuration = this._calculateDuration(normalizedData);
 
       const frame: IAudioFrame = {
         sequenceNumber: this._sequenceNumber++,
         data: {
-          audioData: sanitizedData,
+          audioData: normalizedData,
           isFirst: payload.isFirst ?? false,
           isFinal: payload.isFinal ?? false,
         },
@@ -65,6 +75,81 @@ export class FrameProcessor implements IFrameProcessor {
     this._sequenceNumber = 0;
   }
 
+  /**
+   * Normalizes audio data to base64 string format.
+   * Supports: string (base64), Uint8Array, ArrayBuffer
+   */
+  private _normalizeAudioData(data: AudioDataType): string {
+    if (typeof data === 'string') {
+      return this._sanitizeBase64(data);
+    }
+    
+    // Handle binary data (Uint8Array or ArrayBuffer)
+    const bytes = data instanceof ArrayBuffer 
+      ? new Uint8Array(data) 
+      : data;
+    
+    return this._binaryToBase64(bytes);
+  }
+
+  /**
+   * Converts binary data to base64 string.
+   * Optimized for performance with batched character conversion.
+   */
+  private _binaryToBase64(bytes: Uint8Array): string {
+    // Use native btoa if available (browser/React Native)
+    if (typeof btoa !== 'undefined') {
+      let binaryString = '';
+      const len = bytes.length;
+      // Process in chunks to avoid call stack size exceeded for large arrays
+      const chunkSize = 8192;
+      for (let i = 0; i < len; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+        for (let j = 0; j < chunk.length; j++) {
+          binaryString += String.fromCharCode(chunk[j]);
+        }
+      }
+      return btoa(binaryString);
+    }
+
+    // Fallback manual base64 encoding
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let result = '';
+    const len = bytes.length;
+    
+    for (let i = 0; i < len; i += 3) {
+      const a = bytes[i];
+      const b = i + 1 < len ? bytes[i + 1] : 0;
+      const c = i + 2 < len ? bytes[i + 2] : 0;
+      
+      const bitmap = (a << 16) | (b << 8) | c;
+      
+      result += chars.charAt((bitmap >> 18) & 63);
+      result += chars.charAt((bitmap >> 12) & 63);
+      result += i + 1 < len ? chars.charAt((bitmap >> 6) & 63) : '=';
+      result += i + 2 < len ? chars.charAt(bitmap & 63) : '=';
+    }
+    
+    return result;
+  }
+
+  /**
+   * Gets the byte size of audio data regardless of format.
+   */
+  private _getByteSize(data: AudioDataType): number {
+    if (typeof data === 'string') {
+      // Estimate decoded size from base64
+      const paddingCount = (data.match(/=/g) || []).length;
+      return (data.length * 3) / 4 - paddingCount;
+    }
+    
+    if (data instanceof ArrayBuffer) {
+      return data.byteLength;
+    }
+    
+    return data.length; // Uint8Array
+  }
+
   /** Validate payload structure and content. */
   private _isValidPayload(
     payload: IAudioPlayPayload
@@ -73,28 +158,31 @@ export class FrameProcessor implements IFrameProcessor {
       return false;
     }
 
-    if (
-      !payload.audioData ||
-      typeof payload.audioData !== 'string'
-    ) {
+    if (!payload.audioData) {
       return false;
     }
 
-    // Quick length check
-    if (payload.audioData.length === 0) {
+    // Validate data type
+    const isValidType = 
+      typeof payload.audioData === 'string' ||
+      payload.audioData instanceof Uint8Array ||
+      payload.audioData instanceof ArrayBuffer;
+    
+    if (!isValidType) {
       return false;
     }
 
-    // Estimate decoded size for safety
-    const estimatedDecodedSize =
-      (payload.audioData.length * 3) / 4;
-    if (
-      estimatedDecodedSize >
-      FrameProcessor._maxReasonableChunkSizeBytes
-    ) {
+    // Check for empty data
+    const byteSize = this._getByteSize(payload.audioData);
+    if (byteSize === 0) {
+      return false;
+    }
+
+    // Safety check for oversized chunks
+    if (byteSize > FrameProcessor._maxReasonableChunkSizeBytes) {
       console.warn(
         'FrameProcessor: Chunk size exceeds reasonable limit:',
-        estimatedDecodedSize
+        byteSize
       );
       return false;
     }
@@ -138,9 +226,9 @@ export class FrameProcessor implements IFrameProcessor {
 
       // Convert bytes to samples to duration
       const sampleCount =
-        estimatedBytes / FrameProcessor._bytesPerSample;
+        estimatedBytes / this._bytesPerSample;
       const durationMs =
-        (sampleCount / FrameProcessor._sampleRate) * 1000;
+        (sampleCount / this._sampleRate) * 1000;
 
       // Sanity check and fallback to frame interval
       if (durationMs <= 0 || durationMs > 1000) {

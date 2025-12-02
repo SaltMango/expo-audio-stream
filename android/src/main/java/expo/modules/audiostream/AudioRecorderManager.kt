@@ -405,8 +405,16 @@ class AudioRecorderManager(
         val deltaSize = fileSize - lastEmittedSize
         lastEmittedSize = fileSize
 
+        // Calculate bytes per sample
+        val bytesPerSample = when (recordingConfig.encoding) {
+            "pcm_8bit" -> 1
+            "pcm_16bit" -> 2
+            "pcm_32bit" -> 4
+            else -> 2
+        }
+
         // Calculate position in milliseconds
-        val positionInMs = (from * 1000) / (recordingConfig.sampleRate * recordingConfig.channels * (if (recordingConfig.encoding == "pcm_8bit") 8 else 16) / 8)
+        val positionInMs = (from * 1000) / (recordingConfig.sampleRate * recordingConfig.channels * bytesPerSample)
 
         // Calculate power level (using concise expression)
         val soundLevel = if (isSilent) -160.0f else audioDataEncoder.calculatePowerLevel(audioData, length)

@@ -1,20 +1,16 @@
-export type RecordingEncodingType =
-  | 'pcm_32bit'
-  | 'pcm_16bit'
-  | 'pcm_8bit';
-export type SampleRate = 16000 | 44100 | 48000;
+export type RecordingEncodingType = "pcm_32bit" | "pcm_16bit" | "pcm_8bit";
+export type SampleRate = 16000 | 24000 | 44100 | 48000;
 export type BitDepth = 8 | 16 | 32;
 
 export const PlaybackModes = {
-  REGULAR: 'regular',
-  VOICE_PROCESSING: 'voiceProcessing',
-  CONVERSATION: 'conversation',
+  REGULAR: "regular",
+  VOICE_PROCESSING: "voiceProcessing",
+  CONVERSATION: "conversation",
 } as const;
 /**
  * Defines different playback modes for audio processing
  */
-export type PlaybackMode =
-  (typeof PlaybackModes)[keyof typeof PlaybackModes];
+export type PlaybackMode = (typeof PlaybackModes)[keyof typeof PlaybackModes];
 
 /**
  * Configuration for audio playback settings
@@ -71,30 +67,34 @@ export interface BufferedStreamConfig {
   bufferConfig?: Partial<IAudioBufferConfig>;
 
   /**
+   * Smart buffering configuration
+   */
+  smartBufferConfig?: SmartBufferConfig;
+
+  /**
    * Callback for buffer health updates
    */
   onBufferHealth?: (metrics: IBufferHealthMetrics) => void;
 }
 
 export const EncodingTypes = {
-  PCM_F32LE: 'pcm_f32le',
-  PCM_S16LE: 'pcm_s16le',
+  PCM_F32LE: "pcm_f32le",
+  PCM_S16LE: "pcm_s16le",
 } as const;
 
 /**
  * Defines different encoding formats for audio data
  */
-export type Encoding =
-  (typeof EncodingTypes)[keyof typeof EncodingTypes];
+export type Encoding = (typeof EncodingTypes)[keyof typeof EncodingTypes];
 
 /**
  * Smart buffering mode options
  */
 export type SmartBufferMode =
-  | 'conservative'
-  | 'balanced'
-  | 'aggressive'
-  | 'adaptive';
+  | "conservative"
+  | "balanced"
+  | "aggressive"
+  | "adaptive";
 
 /**
  * Network condition indicators for smart buffering
@@ -117,6 +117,7 @@ export interface SmartBufferConfig {
     highJitterMs?: number; // Threshold to increase buffer size
     packetLossPercent?: number; // Threshold to enable buffering
   };
+  sampleRate?: number; // Sample rate in Hz (default: 16000)
 }
 
 export interface StartRecordingResult {
@@ -186,13 +187,20 @@ export interface IAudioBufferConfig {
   minBufferMs: number; // Minimum buffer size before underrun handling
   maxBufferMs: number; // Maximum buffer size before overrun handling
   frameIntervalMs: number; // Expected frame interval in milliseconds
+  sampleRate?: number; // Sample rate in Hz (default: 16000)
 }
 
 /**
- * Audio payload for playback containing base64 encoded audio data
+ * Audio data type - supports both base64 string and binary formats for JSI optimization
+ */
+export type AudioDataType = string | Uint8Array | ArrayBuffer;
+
+/**
+ * Audio payload for playback containing audio data
+ * Supports both base64 encoded strings and binary data (Uint8Array/ArrayBuffer) for better performance
  */
 export interface IAudioPlayPayload {
-  audioData: string; // Base64 encoded PCM audio data
+  audioData: AudioDataType; // PCM audio data (base64 string or binary)
   isFirst?: boolean; // True if this is the first chunk in a stream
   isFinal?: boolean; // True if this is the final chunk in a stream
 }
@@ -210,11 +218,7 @@ export interface IAudioFrame {
 /**
  * Buffer health states for quality monitoring
  */
-export type BufferHealthState =
-  | 'idle'
-  | 'healthy'
-  | 'degraded'
-  | 'critical';
+export type BufferHealthState = "idle" | "healthy" | "degraded" | "critical";
 
 /**
  * Comprehensive buffer health and quality metrics

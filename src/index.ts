@@ -23,6 +23,7 @@ import {
   SmartBufferConfig,
   SmartBufferMode,
   NetworkConditions,
+  AudioDataType,
 } from './types';
 
 import { AudioBufferManager } from './audio';
@@ -44,12 +45,7 @@ const SuspendSoundEventTurnId = 'suspend-sound-events';
 export class ExpoPlayAudioStream {
   // Static buffer manager instances for different turn IDs
   private static _bufferManagers: {
-    [turnId: string]: AudioBufferManager;
-  } = {};
-
-  // Static smart buffer manager instances for different turn IDs
-  private static _smartBufferManagers: {
-    [turnId: string]: BufferManagerAdaptive;
+    [turnId: string]: IAudioBufferManager;
   } = {};
 
   /**
@@ -329,18 +325,28 @@ export class ExpoPlayAudioStream {
     config: BufferedStreamConfig
   ): Promise<void> {
     try {
-      const bufferManager = new AudioBufferManager(
-        config.bufferConfig
-      );
+      let bufferManager: IAudioBufferManager;
 
-      bufferManager.setTurnId(config.turnId);
-      if (config.encoding) {
-        bufferManager.setEncoding(config.encoding);
+      if (config.smartBufferConfig) {
+        bufferManager = new BufferManagerAdaptive(
+          config.smartBufferConfig,
+          config.turnId,
+          config.encoding
+        );
+        if (config.bufferConfig) {
+          bufferManager.updateConfig(config.bufferConfig);
+        }
+      } else {
+        const simpleManager = new AudioBufferManager(config.bufferConfig);
+        simpleManager.setTurnId(config.turnId);
+        if (config.encoding) {
+          simpleManager.setEncoding(config.encoding);
+        }
+        bufferManager = simpleManager;
       }
 
       // Store the buffer manager for this turn ID
-      ExpoPlayAudioStream._bufferManagers[config.turnId] =
-        bufferManager;
+      ExpoPlayAudioStream._bufferManagers[config.turnId] = bufferManager;
 
       // Start buffered playback
       bufferManager.startPlayback();
@@ -729,6 +735,7 @@ export {
   SmartBufferConfig,
   SmartBufferMode,
   NetworkConditions,
+  AudioDataType,
 };
 
 // Export audio processing modules
@@ -737,4 +744,5 @@ export {
   FrameProcessor,
   QualityMonitor,
   SmartBufferManager,
+  RingBuffer,
 } from './audio';
