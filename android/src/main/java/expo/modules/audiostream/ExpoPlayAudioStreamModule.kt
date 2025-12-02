@@ -18,6 +18,8 @@ import expo.modules.interfaces.permissions.Permissions
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.typedarray.Uint8Array
+import expo.modules.kotlin.typedarray.TypedArray
 import kotlin.math.log
 
 
@@ -197,6 +199,23 @@ class ExpoPlayAudioStreamModule : Module(), EventSender {
                 }
             }
             audioPlaybackManager.playAudio(chunk, turnId, promise, pcmEncoding)
+        }
+
+        // JSI Binary Data Transfer - Zero-copy audio playback with TypedArray
+        AsyncFunction("playSoundBinary") { audioData: Uint8Array, turnId: String, encoding: String?, promise: Promise ->
+            val pcmEncoding = when (encoding) {
+                "pcm_f32le" -> PCMEncoding.PCM_F32LE
+                "pcm_s16le", null -> PCMEncoding.PCM_S16LE
+                else -> {
+                    Log.d(Constants.TAG, "Unsupported encoding: $encoding, defaulting to PCM_S16LE")
+                    PCMEncoding.PCM_S16LE
+                }
+            }
+            // Convert TypedArray to ByteArray directly (zero-copy from JSI)
+            val byteArray = audioData.toDirectBuffer().let { buffer ->
+                ByteArray(buffer.remaining()).also { buffer.get(it) }
+            }
+            audioPlaybackManager.playAudioBinary(byteArray, turnId, promise, pcmEncoding)
         }
 
         AsyncFunction("playWav") { chunk: String, promise: Promise ->

@@ -434,6 +434,83 @@ class SoundPlayer {
         }
     }
     
+    /// Processes binary audio data directly (JSI zero-copy path)
+    /// - Parameters:
+    ///   - audioData: Raw audio data bytes
+    ///   - commonFormat: The common format of the audio data
+    /// - Returns: Processed audio buffer or nil if processing fails
+    /// - Throws: SoundPlayerError if format is unsupported
+    private func processAudioChunkBinary(_ audioData: Data, commonFormat: AVAudioCommonFormat) throws -> AVAudioPCMBuffer? {
+        switch commonFormat {
+        case .pcmFormatFloat32:
+            return AudioUtils.processFloat32LEAudioChunkBinary(audioData, audioFormat: self.audioPlaybackFormat)
+        case .pcmFormatInt16:
+            return AudioUtils.processPCM16LEAudioChunkBinary(audioData, audioFormat: self.audioPlaybackFormat)
+        default:
+            Logger.debug("[SoundPlayer] Unsupported audio format: \(commonFormat)")
+            throw SoundPlayerError.unsupportedFormat
+        }
+    }
+    
+    /// JSI Binary Data Transfer - Plays audio directly from Data (zero-copy path)
+    /// This bypasses Base64 encoding/decoding for better performance
+    /// - Parameters:
+    ///   - audioData: Raw audio data bytes
+    ///   - strTurnId: Identifier for the turn/segment
+    ///   - resolver: Promise resolver callback
+    ///   - rejecter: Promise rejection callback
+    ///   - commonFormat: The common format of the audio data (defaults to .pcmFormatInt16)
+    /// - Throws: Error if audio processing fails
+    public func playBinary(
+        audioData: Data,
+        turnId strTurnId: String,
+        resolver: @escaping RCTPromiseResolveBlock,
+        rejecter: @escaping RCTPromiseRejectBlock,
+        commonFormat: AVAudioCommonFormat = .pcmFormatInt16
+    ) throws {
+        Logger.debug("[SoundPlayer] New binary play chunk, size: \(audioData.count) bytes")
+        guard !self.isInterrupted else {
+            resolver(nil)
+            return
+        }
+        
+        do {
+            if !self.isAudioEngineIsSetup {
+                try ensureAudioEngineIsSetup()
+            }
+            
+            guard let buffer = try processAudioChunkBinary(audioData, commonFormat: commonFormat) else {
+                Logger.debug("[SoundPlayer] Failed to process binary audio chunk")
+                throw SoundPlayerError.invalidBase64String // Reusing error type for invalid data
+            }
+            
+            // Enable voice processing for voice processing mode just before we start playback
+            let isFirstChunk = self.audioQueue.isEmpty && self.segmentsLeftToPlay == 0
+            if isFirstChunk && config.playbackMode == .voiceProcessing {
+                let success = setupVoiceProcessingForPlayback()
+                if !success {
+                    Logger.debug("[SoundPlayer] Continuing without voice processing")
+                }
+            }
+                        
+            let bufferTuple = (buffer: buffer, promise: resolver, turnId: strTurnId)
+            audioQueue.append(bufferTuple)
+            if self.segmentsLeftToPlay == 0 && strTurnId != suspendSoundEventTurnId {
+                self.delegate?.onSoundStartedPlaying()
+            }
+            self.segmentsLeftToPlay += 1
+            
+            // If not already playing, start playback
+            if audioQueue.count == 1 {
+                Logger.debug("[SoundPlayer] Starting binary playback [ \(audioQueue.count)]")
+                playNextInQueue()
+            }
+        } catch {
+            Logger.debug("[SoundPlayer] Failed to enqueue binary audio chunk: \(error.localizedDescription)")
+            rejecter("ERROR_SOUND_PLAYER", "Failed to enqueue binary audio chunk: \(error.localizedDescription)", nil)
+        }
+    }
+    
     /// Sets up voice processing for playback by stopping the engine, enabling voice processing, and then restarting the engine
     /// - Returns: True if voice processing was successfully enabled, false otherwise
     private func setupVoiceProcessingForPlayback() -> Bool {

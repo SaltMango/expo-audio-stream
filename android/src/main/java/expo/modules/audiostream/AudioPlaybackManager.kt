@@ -267,6 +267,51 @@ class AudioPlaybackManager(
         }
     }
 
+    /**
+     * JSI Binary Data Transfer - Play audio directly from ByteArray (zero-copy path)
+     * This bypasses Base64 encoding/decoding for better performance
+     */
+    fun playAudioBinary(audioData: ByteArray, turnId: String, promise: Promise, encoding: PCMEncoding = PCMEncoding.PCM_S16LE) {
+        coroutineScope.launch {
+            if (processingChannel.isClosedForSend || playbackChannel.isClosedForSend) {
+                Log.d("ExpoPlayStreamModule", "Re-initializing channels")
+                initializeChannels()
+            }
+            Log.d("ExpoPlayStreamModule", "PlayAudioBinary input $turnId with ${audioData.size} bytes, encoding $encoding")
+            
+            // Update the current turnId
+            setCurrentTurnId(turnId)
+            
+            isMuted = false
+            
+            // Process binary data directly without Base64 decode
+            try {
+                val audioDataWithoutRIFF = removeRIFFHeaderIfNeeded(audioData)
+                val floatAudioData = convertPCMDataToFloatArray(audioDataWithoutRIFF, encoding)
+                
+                // Check if this is the first chunk
+                val isFirstChunk = segmentsLeftToPlay == 0 && 
+                                  playbackChannel.isEmpty && 
+                                  (!hasSentSoundStartedEvent || !isPlaying)
+                                  
+                if (isFirstChunk && turnId != SUSPEND_SOUND_EVENT_TURN_ID) {
+                    sendSoundStartedEvent()
+                    hasSentSoundStartedEvent = true
+                }
+                
+                playbackChannel.send(AudioChunk(floatAudioData, promise, turnId))
+                segmentsLeftToPlay++
+                
+                if (!isPlaying) {
+                    Log.d("ExpoPlayStreamModule", "Start Playback (binary)")
+                    startPlayback()
+                }
+            } catch (e: Exception) {
+                promise.reject("ERR_PROCESSING_AUDIO", e.message, e)
+            }
+        }
+    }
+
     fun setCurrentTurnId(turnId: String) {
         // Reset tracking flags when turnId changes
         if (currentTurnId != turnId) {

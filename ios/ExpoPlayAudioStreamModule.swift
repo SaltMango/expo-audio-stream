@@ -223,6 +223,38 @@ public class ExpoPlayAudioStreamModule: Module, AudioStreamManagerDelegate, Micr
             }
         }
         
+        // JSI Binary Data Transfer - Zero-copy audio playback with TypedArray
+        AsyncFunction("playSoundBinary") { (audioData: Data, turnId: String, encoding: String?, promise: Promise) in
+            Logger.debug("Play sound binary - \(audioData.count) bytes")
+            do {
+                if !isAudioSessionInitialized {
+                    try ensureAudioSessionInitialized()
+                }
+                
+                // Determine the audio format based on the encoding parameter
+                let commonFormat: AVAudioCommonFormat
+                switch encoding {
+                case "pcm_f32le":
+                    commonFormat = .pcmFormatFloat32
+                case "pcm_s16le", nil:
+                    commonFormat = .pcmFormatInt16
+                default:
+                    Logger.debug("[ExpoPlayAudioStreamModule] Unsupported encoding: \(encoding ?? "nil"), defaulting to PCM_S16LE")
+                    commonFormat = .pcmFormatInt16
+                }
+        
+                // Direct binary playback without Base64 encoding/decoding
+                try soundPlayer.playBinary(audioData: audioData, turnId: turnId, resolver: {
+                    _ in promise.resolve(nil)
+                }, rejecter: { code, message, error in
+                    promise.reject(code ?? "ERR_UNKNOWN", message ?? "Unknown error")
+                }, commonFormat: commonFormat)
+            } catch {
+                print("Error enqueuing binary audio: \(error.localizedDescription)")
+                promise.reject("ERR_BINARY_PLAYBACK", "Error enqueuing binary audio: \(error.localizedDescription)")
+            }
+        }
+        
         AsyncFunction("playWav") { (base64Chunk: String, promise: Promise) in
             if !isAudioSessionInitialized {
                 do {

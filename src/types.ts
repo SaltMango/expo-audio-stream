@@ -272,3 +272,67 @@ export interface IQualityMonitor {
   getRecommendedAdjustment(): number;
   reset(): void;
 }
+
+// ============ PRODUCTION TELEMETRY TYPES ============
+
+/**
+ * Production telemetry data for monitoring audio stream performance
+ */
+export interface IAudioTelemetry {
+  /** Session identifier */
+  sessionId: string;
+  /** Total chunks played successfully */
+  chunksPlayed: number;
+  /** Total chunks dropped due to errors */
+  chunksDropped: number;
+  /** Total buffer underruns */
+  bufferUnderruns: number;
+  /** Total buffer overruns */
+  bufferOverruns: number;
+  /** Average latency in milliseconds */
+  averageLatencyMs: number;
+  /** Peak latency in milliseconds */
+  peakLatencyMs: number;
+  /** Average jitter in milliseconds */
+  averageJitterMs: number;
+  /** Total playback duration in milliseconds */
+  totalPlaybackDurationMs: number;
+  /** Number of stream restarts */
+  streamRestarts: number;
+  /** Current buffer health state */
+  bufferHealthState: BufferHealthState;
+  /** Timestamp of last update */
+  lastUpdatedAt: number;
+}
+
+/**
+ * Retry configuration for production resilience
+ */
+export interface IRetryConfig {
+  /** Maximum number of retry attempts */
+  maxRetries: number;
+  /** Initial delay in milliseconds before first retry */
+  initialDelayMs: number;
+  /** Maximum delay in milliseconds between retries */
+  maxDelayMs: number;
+  /** Multiplier for exponential backoff */
+  backoffMultiplier: number;
+  /** Whether to use jitter in backoff calculation */
+  useJitter: boolean;
+}
+
+/**
+ * Default retry configuration
+ */
+export const DEFAULT_RETRY_CONFIG: IRetryConfig = {
+  maxRetries: 3,
+  initialDelayMs: 50,
+  maxDelayMs: 1000,
+  backoffMultiplier: 2,
+  useJitter: true,
+};
+
+/**
+ * Callback for telemetry updates
+ */
+export type TelemetryCallback = (telemetry: IAudioTelemetry) => void;

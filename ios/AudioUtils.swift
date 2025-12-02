@@ -316,22 +316,99 @@ class AudioUtils {
             return nil
         }
         
+        // Use the binary processing method for actual conversion
+        return processPCM16LEAudioChunkBinary(data, audioFormat: audioFormat)
+    }
+    
+    // MARK: - JSI Binary Data Transfer Methods (Zero-copy path)
+    
+    /// JSI Binary: Processes raw Float32LE PCM audio data directly (zero-copy path)
+    /// - Parameters:
+    ///   - audioData: Raw Float32LE PCM audio data
+    ///   - audioFormat: Target audio format for the buffer (should be Float32)
+    /// - Returns: AVAudioPCMBuffer containing the processed audio data, or nil if processing fails
+    static func processFloat32LEAudioChunkBinary(_ audioData: Data, audioFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
+        // Verify format is Float32
+        guard audioFormat.commonFormat == .pcmFormatFloat32 else {
+            Logger.debug("[AudioUtils] Invalid format: expected Float32 format")
+            return nil
+        }
+        
+        // Validate data size
+        guard audioData.count > 0 && audioData.count < 2_000_000 else {
+            Logger.debug("[AudioUtils] Invalid data size: \(audioData.count) bytes")
+            return nil
+        }
+        
         // Automatically detect and remove WAV header if present
-        let audioData: Data
-        if isWavFormat(data) {
-            Logger.debug("[AudioUtils] WAV format detected, removing header")
-            guard let pcmData = removeWavHeader(from: data) else {
+        let pcmData: Data
+        if isWavFormat(audioData) {
+            Logger.debug("[AudioUtils] WAV format detected in binary data, removing header")
+            guard let rawData = removeWavHeader(from: audioData) else {
                 Logger.debug("[AudioUtils] Failed to process WAV header")
                 return nil
             }
-            audioData = pcmData
+            pcmData = rawData
         } else {
-            Logger.debug("[AudioUtils] Raw PCM format detected")
-            audioData = data
+            pcmData = audioData
         }
         
         // Create buffer for Float32 samples
-        let frameCount = AVAudioFrameCount(audioData.count / 2) // 2 bytes per sample for 16-bit audio
+        let frameCount = AVAudioFrameCount(pcmData.count / 4) // 4 bytes per sample for Float32 audio
+        let intFrameCount = Int(frameCount)
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else {
+            Logger.debug("[AudioUtils] Failed to create audio buffer")
+            return nil
+        }
+        
+        // Copy float samples directly from data
+        pcmBuffer.frameLength = frameCount
+        if let channelData = pcmBuffer.floatChannelData {
+            pcmData.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Void in
+                guard let addr = bytes.baseAddress else { return }
+                let ptr = addr.assumingMemoryBound(to: Float.self)
+                for i in 0..<intFrameCount {
+                    channelData.pointee[i] = ptr[i]
+                }
+            }
+        }
+        
+        return pcmBuffer
+    }
+    
+    /// JSI Binary: Processes raw PCM_S16LE (16-bit Little Endian) audio data directly (zero-copy path)
+    /// - Parameters:
+    ///   - audioData: Raw PCM_S16LE audio data
+    ///   - audioFormat: Target audio format for the buffer (should be Float32)
+    /// - Returns: AVAudioPCMBuffer containing the processed audio data, or nil if processing fails
+    static func processPCM16LEAudioChunkBinary(_ audioData: Data, audioFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
+        // Verify format is Float32
+        guard audioFormat.commonFormat == .pcmFormatFloat32 else {
+            Logger.debug("[AudioUtils] Invalid format: expected Float32 format")
+            return nil
+        }
+        
+        // Validate data size
+        guard audioData.count > 0 && audioData.count < 2_000_000 else {
+            Logger.debug("[AudioUtils] Invalid data size: \(audioData.count) bytes")
+            return nil
+        }
+        
+        // Automatically detect and remove WAV header if present
+        let pcmData: Data
+        if isWavFormat(audioData) {
+            Logger.debug("[AudioUtils] WAV format detected in binary data, removing header")
+            guard let rawData = removeWavHeader(from: audioData) else {
+                Logger.debug("[AudioUtils] Failed to process WAV header")
+                return nil
+            }
+            pcmData = rawData
+        } else {
+            pcmData = audioData
+        }
+        
+        // Create buffer for Float32 samples
+        let frameCount = AVAudioFrameCount(pcmData.count / 2) // 2 bytes per sample for 16-bit audio
         let intFrameCount = Int(frameCount)
         guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else {
             Logger.debug("[AudioUtils] Failed to create audio buffer")
@@ -340,7 +417,7 @@ class AudioUtils {
         
         pcmBuffer.frameLength = frameCount
         if let channelData = pcmBuffer.floatChannelData {
-            audioData.withUnsafeBytes { ptr in
+            pcmData.withUnsafeBytes { ptr in
                 guard let addr = ptr.baseAddress else { return }
                 let int16ptr = addr.assumingMemoryBound(to: Int16.self)
                 for i in 0..<intFrameCount {

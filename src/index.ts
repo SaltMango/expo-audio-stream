@@ -24,6 +24,11 @@ import {
   SmartBufferMode,
   NetworkConditions,
   AudioDataType,
+  // Production telemetry types
+  IAudioTelemetry,
+  IRetryConfig,
+  DEFAULT_RETRY_CONFIG,
+  TelemetryCallback,
 } from './types';
 
 import { AudioBufferManager } from './audio';
@@ -54,6 +59,14 @@ export class ExpoPlayAudioStream {
    * It will reset all internal state and release audio resources.
    */
   static destroy() {
+    // Clean up all health monitor intervals
+    Object.keys(
+      ExpoPlayAudioStream._healthMonitorIntervals
+    ).forEach((turnId) => {
+      clearInterval(ExpoPlayAudioStream._healthMonitorIntervals[turnId]);
+    });
+    ExpoPlayAudioStream._healthMonitorIntervals = {};
+
     // Clean up all buffer managers
     Object.keys(
       ExpoPlayAudioStream._bufferManagers
@@ -314,6 +327,11 @@ export class ExpoPlayAudioStream {
 
   // ============ BUFFERED AUDIO METHODS ============
 
+  // Store health monitor intervals for cleanup
+  private static _healthMonitorIntervals: {
+    [turnId: string]: ReturnType<typeof setInterval>;
+  } = {};
+
   /**
    * Starts a buffered audio stream for a specific turn ID.
    * This enables jitter buffering for improved audio quality on unreliable networks.
@@ -325,6 +343,14 @@ export class ExpoPlayAudioStream {
     config: BufferedStreamConfig
   ): Promise<void> {
     try {
+      // Clean up any existing stream for this turnId
+      if (ExpoPlayAudioStream._bufferManagers[config.turnId]) {
+        console.warn(
+          `[ExpoPlayAudioStream] Replacing existing stream for turnId: ${config.turnId}`
+        );
+        await ExpoPlayAudioStream.stopBufferedAudioStream(config.turnId);
+      }
+
       let bufferManager: IAudioBufferManager;
 
       if (config.smartBufferConfig) {
@@ -337,7 +363,11 @@ export class ExpoPlayAudioStream {
           bufferManager.updateConfig(config.bufferConfig);
         }
       } else {
-        const simpleManager = new AudioBufferManager(config.bufferConfig);
+        // Merge sampleRate from bufferConfig if provided
+        const mergedConfig = {
+          ...config.bufferConfig,
+        };
+        const simpleManager = new AudioBufferManager(mergedConfig);
         simpleManager.setTurnId(config.turnId);
         if (config.encoding) {
           simpleManager.setEncoding(config.encoding);
@@ -345,25 +375,37 @@ export class ExpoPlayAudioStream {
         bufferManager = simpleManager;
       }
 
-      // Store the buffer manager for this turn ID
+      // Store the buffer manager for this turn ID BEFORE starting playback
       ExpoPlayAudioStream._bufferManagers[config.turnId] = bufferManager;
 
       // Start buffered playback
       bufferManager.startPlayback();
 
+      console.log(
+        `[ExpoPlayAudioStream] Started buffered stream for turnId: ${config.turnId}`
+      );
+
       // Set up health monitoring if callback provided
       if (config.onBufferHealth) {
         const healthCallback = config.onBufferHealth;
-        setInterval(() => {
-          if (bufferManager.isPlaying()) {
-            healthCallback(
-              bufferManager.getHealthMetrics()
-            );
+        const intervalId = setInterval(() => {
+          const manager = ExpoPlayAudioStream._bufferManagers[config.turnId];
+          if (manager) {
+            healthCallback(manager.getHealthMetrics());
+          } else {
+            // Clean up interval if manager no longer exists
+            clearInterval(intervalId);
+            delete ExpoPlayAudioStream._healthMonitorIntervals[config.turnId];
           }
         }, 1000); // Report health every second
+        
+        // Store interval for cleanup
+        ExpoPlayAudioStream._healthMonitorIntervals[config.turnId] = intervalId;
       }
     } catch (error) {
-      console.error(error);
+      console.error('[ExpoPlayAudioStream] Failed to start buffered stream:', error);
+      // Clean up on failure
+      delete ExpoPlayAudioStream._bufferManagers[config.turnId];
       throw new Error(
         `Failed to start buffered audio stream: ${error}`
       );
@@ -373,7 +415,7 @@ export class ExpoPlayAudioStream {
   /**
    * Plays audio with jitter buffering for a specific turn ID.
    * The stream must be started first with startBufferedAudioStream().
-   * @param {string} base64Chunk - The base64 encoded audio chunk to play.
+   * @param {string | Uint8Array | ArrayBuffer} audioData - Audio data (base64 string or binary).
    * @param {string} turnId - The turn ID for the stream.
    * @param {boolean} isFirst - Whether this is the first chunk.
    * @param {boolean} isFinal - Whether this is the final chunk.
@@ -381,7 +423,7 @@ export class ExpoPlayAudioStream {
    * @throws {Error} If the audio chunk fails to buffer or the stream is not started.
    */
   static async playAudioBuffered(
-    base64Chunk: string,
+    audioData: string | Uint8Array | ArrayBuffer,
     turnId: string,
     isFirst?: boolean,
     isFinal?: boolean
@@ -390,24 +432,130 @@ export class ExpoPlayAudioStream {
       const bufferManager =
         ExpoPlayAudioStream._bufferManagers[turnId];
       if (!bufferManager) {
+        // List available turnIds for debugging
+        const availableTurnIds = Object.keys(ExpoPlayAudioStream._bufferManagers);
+        console.error(
+          `[ExpoPlayAudioStream] No buffered stream for turnId: ${turnId}. Available: [${availableTurnIds.join(', ')}]`
+        );
         throw new Error(
           `No buffered stream found for turnId: ${turnId}. Call startBufferedAudioStream() first.`
         );
       }
 
+      // Handle empty final chunk (flush signal)
+      if (isFinal && this._isEmptyData(audioData)) {
+        // Just mark the stream as complete, don't enqueue empty data
+        console.log(`[ExpoPlayAudioStream] Received final flush signal for turnId: ${turnId}`);
+        return;
+      }
+
       const audioPayload: IAudioPlayPayload = {
-        audioData: base64Chunk,
+        audioData: audioData,
         isFirst: isFirst ?? false,
         isFinal: isFinal ?? false,
       };
 
       bufferManager.enqueueFrames(audioPayload);
     } catch (error) {
-      console.error(error);
+      console.error('[ExpoPlayAudioStream] playAudioBuffered error:', error);
       throw new Error(
         `Failed to play buffered audio: ${error}`
       );
     }
+  }
+
+  /**
+   * Check if audio data is empty
+   */
+  private static _isEmptyData(data: string | Uint8Array | ArrayBuffer): boolean {
+    if (typeof data === 'string') {
+      return data.length === 0;
+    }
+    if (data instanceof ArrayBuffer) {
+      return data.byteLength === 0;
+    }
+    if (data instanceof Uint8Array) {
+      return data.length === 0;
+    }
+    return true;
+  }
+
+  // ============ JSI BINARY DATA METHODS ============
+
+  /**
+   * JSI Binary: Plays audio directly from Uint8Array (zero-copy path).
+   * This bypasses Base64 encoding/decoding for ~33% less overhead and better performance.
+   * @param {Uint8Array} audioData - Raw PCM audio data as Uint8Array.
+   * @param {string} turnId - The turn ID.
+   * @param {string} [encoding] - The encoding format ('pcm_f32le' or 'pcm_s16le').
+   * @returns {Promise<void>}
+   * @throws {Error} If the audio fails to play.
+   */
+  static async playSoundBinary(
+    audioData: Uint8Array,
+    turnId: string,
+    encoding?: Encoding
+  ): Promise<void> {
+    try {
+      // Check if native module supports binary playback
+      if (typeof ExpoPlayAudioStreamModule.playSoundBinary === 'function') {
+        await ExpoPlayAudioStreamModule.playSoundBinary(
+          audioData,
+          turnId,
+          encoding ?? EncodingTypes.PCM_S16LE
+        );
+      } else {
+        // Fallback to base64 if binary not supported
+        console.warn('[ExpoPlayAudioStream] playSoundBinary not available, falling back to base64');
+        const base64 = ExpoPlayAudioStream._uint8ArrayToBase64(audioData);
+        await ExpoPlayAudioStreamModule.playSound(
+          base64,
+          turnId,
+          encoding ?? EncodingTypes.PCM_S16LE
+        );
+      }
+    } catch (error) {
+      console.error('[ExpoPlayAudioStream] playSoundBinary error:', error);
+      throw new Error(`Failed to play binary audio: ${error}`);
+    }
+  }
+
+  /**
+   * Converts Uint8Array to base64 string (fallback for older native modules)
+   */
+  private static _uint8ArrayToBase64(bytes: Uint8Array): string {
+    if (typeof btoa !== 'undefined') {
+      let binaryString = '';
+      const len = bytes.length;
+      const chunkSize = 8192;
+      for (let i = 0; i < len; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+        for (let j = 0; j < chunk.length; j++) {
+          binaryString += String.fromCharCode(chunk[j]);
+        }
+      }
+      return btoa(binaryString);
+    }
+
+    // Fallback manual base64 encoding
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let result = '';
+    const len = bytes.length;
+    
+    for (let i = 0; i < len; i += 3) {
+      const a = bytes[i];
+      const b = i + 1 < len ? bytes[i + 1] : 0;
+      const c = i + 2 < len ? bytes[i + 2] : 0;
+      
+      const bitmap = (a << 16) | (b << 8) | c;
+      
+      result += chars.charAt((bitmap >> 18) & 63);
+      result += chars.charAt((bitmap >> 12) & 63);
+      result += i + 1 < len ? chars.charAt((bitmap >> 6) & 63) : '=';
+      result += i + 2 < len ? chars.charAt(bitmap & 63) : '=';
+    }
+    
+    return result;
   }
 
   /**
@@ -420,6 +568,13 @@ export class ExpoPlayAudioStream {
     turnId: string
   ): Promise<void> {
     try {
+      // Clean up health monitor interval
+      const intervalId = ExpoPlayAudioStream._healthMonitorIntervals[turnId];
+      if (intervalId) {
+        clearInterval(intervalId);
+        delete ExpoPlayAudioStream._healthMonitorIntervals[turnId];
+      }
+
       const bufferManager =
         ExpoPlayAudioStream._bufferManagers[turnId];
       if (bufferManager) {
@@ -736,6 +891,11 @@ export {
   SmartBufferMode,
   NetworkConditions,
   AudioDataType,
+  // Production telemetry types
+  IAudioTelemetry,
+  IRetryConfig,
+  DEFAULT_RETRY_CONFIG,
+  TelemetryCallback,
 };
 
 // Export audio processing modules
@@ -745,4 +905,8 @@ export {
   QualityMonitor,
   SmartBufferManager,
   RingBuffer,
+  // Production utilities
+  TelemetryManager,
+  RetryHandler,
+  defaultRetryHandler,
 } from './audio';
