@@ -13,7 +13,7 @@
     "prepare": "expo-module prepare",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
-    "open:ios": "open -a \"Xcode\" example/ios",
+    "open:ios": "xed example/ios",
     "open:android": "open -a \"Android Studio\" example/android"
   },
   "keywords": [
@@ -52,12 +52,12 @@
     "README.md",
     "LICENSE"
   ],
+  "dependencies": {},
   "devDependencies": {
-    "@expo/config-plugins": "~54.0.2",
-    "@types/react": "~18.3.27",
-    "expo-module-scripts": "~5.0.7",
-    "expo-modules-core": "~3.0.26",
-    "typescript": "~5.6.3"
+    "@types/react": "~19.1.0",
+    "expo-module-scripts": "^5.0.7",
+    "expo": "^54.0.24",
+    "react-native": "0.81.5"
   },
   "peerDependencies": {
     "expo": "*",
