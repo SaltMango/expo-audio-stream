@@ -1,6 +1,6 @@
 {
   "name": "@saltmango/expo-audio-stream",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Expo Play Audio Stream module - Enhanced fork with production-ready audio streaming",
   "main": "build/index.js",
   "types": "build/index.d.ts",
