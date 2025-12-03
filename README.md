@@ -30,10 +30,6 @@ await ExpoPlayAudioStream.startBufferedAudioStream({
 await ExpoPlayAudioStream.playAudioBuffered(audioChunk, "my-turn");
 ```
 
-## Motivation 🎯
-
-Expo's built-in audio capabilities are limited to playing pre-loaded audio files and basic recording. The Expo Audio Stream module addresses these limitations with production-ready features for real-time audio streaming, intelligent buffering, and hardware-accelerated audio processing. Key innovations include adaptive buffering that adjusts to network conditions, hardware echo cancellation for voice applications, and memory-optimized data structures for consistent performance.
-
 ## Example Usage 🚀
 
 Here's how you can use the Expo Play Audio Stream module for different scenarios:
@@ -195,76 +191,6 @@ async function processBinaryAudio() {
     EncodingTypes.PCM_F32LE
   );
 }
-```
-
-### 📱 Legacy: Standard Recording and Playback
-
-```javascript
-import {
-  ExpoPlayAudioStream,
-  EncodingTypes,
-  PlaybackModes,
-} from "@saltmango/expo-audio-stream";
-
-// Example of standard recording and playback with specific encoding
-async function handleStandardRecording() {
-  try {
-    // Configure sound playback settings
-    await ExpoPlayAudioStream.setSoundConfig({
-      sampleRate: 44100,
-      playbackMode: PlaybackModes.REGULAR,
-    });
-
-    // Start recording with configuration
-    const { recordingResult, subscription } =
-      await ExpoPlayAudioStream.startRecording({
-        sampleRate: 48000,
-        channels: 1,
-        encoding: "pcm_16bit",
-        interval: 250, // milliseconds
-        onAudioStream: (event) => {
-          console.log("Received audio stream:", {
-            audioDataBase64: event.data,
-            position: event.position,
-            eventDataSize: event.eventDataSize,
-            totalSize: event.totalSize,
-            soundLevel: event.soundLevel, // New property for audio level monitoring
-          });
-        },
-      });
-
-    // After some time, stop recording
-    setTimeout(async () => {
-      const recording = await ExpoPlayAudioStream.stopRecording();
-      console.log("Recording stopped:", recording);
-
-      // Play the recorded audio with specific encoding format
-      const turnId = "example-turn-1";
-      await ExpoPlayAudioStream.playAudio(
-        base64Content,
-        turnId,
-        EncodingTypes.PCM_S16LE
-      );
-
-      // Clean up
-      subscription?.remove();
-    }, 5000);
-  } catch (error) {
-    console.error("Audio handling error:", error);
-  }
-}
-
-// You can also subscribe to audio events from anywhere
-const audioSubscription = ExpoPlayAudioStream.subscribeToAudioEvents(
-  async (event) => {
-    console.log("Audio event received:", {
-      data: event.data,
-      soundLevel: event.soundLevel, // Sound level can be used for visualization or voice detection
-    });
-  }
-);
-// Don't forget to clean up when done
-// audioSubscription.remove();
 ```
 
 ### Simultaneous Recording and Playback
