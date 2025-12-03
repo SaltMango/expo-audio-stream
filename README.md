@@ -1,11 +1,16 @@
 # Expo Play Audio Stream 🎶
 
+> **Enhanced Fork**: This is a production-ready fork of [mykin-ai/expo-audio-stream](https://github.com/mykin-ai/expo-audio-stream), with additional features and improvements by SaltMango.
+
 The Expo Play Audio Stream module is a powerful tool for recording and streaming audio data in your Expo-based React Native applications. It provides a seamless way to record audio from the microphone and play audio chunks in real-time, allowing you to build audio-centric features like voice assistants, audio players, voice recorders, and more.
 
 ## Quick Start 🚀
 
 ```javascript
-import { ExpoPlayAudioStream, PlaybackModes } from 'expo-audio-stream';
+import {
+  ExpoPlayAudioStream,
+  PlaybackModes,
+} from "@saltmango/expo-audio-stream";
 
 // Configure for conversational AI
 await ExpoPlayAudioStream.setSoundConfig({
@@ -15,14 +20,14 @@ await ExpoPlayAudioStream.setSoundConfig({
 
 // Start adaptive buffering
 await ExpoPlayAudioStream.startBufferedAudioStream({
-  turnId: 'my-turn',
-  encoding: 'pcm_s16le',
-  smartBufferConfig: { mode: 'adaptive' },
-  onBufferHealth: (metrics) => console.log('Buffer:', metrics),
+  turnId: "my-turn",
+  encoding: "pcm_s16le",
+  smartBufferConfig: { mode: "adaptive" },
+  onBufferHealth: (metrics) => console.log("Buffer:", metrics),
 });
 
 // Stream audio chunks
-await ExpoPlayAudioStream.playAudioBuffered(audioChunk, 'my-turn');
+await ExpoPlayAudioStream.playAudioBuffered(audioChunk, "my-turn");
 ```
 
 ## Motivation 🎯
@@ -42,7 +47,7 @@ import {
   ExpoPlayAudioStream,
   EncodingTypes,
   PlaybackModes,
-} from "expo-audio-stream";
+} from "@saltmango/expo-audio-stream";
 
 // Production-ready setup with adaptive buffering and voice quality
 async function startConversationalAI() {
@@ -55,7 +60,7 @@ async function startConversationalAI() {
 
     // 2. Start adaptive buffered audio stream
     await ExpoPlayAudioStream.startBufferedAudioStream({
-      turnId: 'conversation-turn-1',
+      turnId: "conversation-turn-1",
       encoding: EncodingTypes.PCM_S16LE,
       bufferConfig: {
         targetBufferMs: 100, // Low latency for conversation
@@ -64,30 +69,34 @@ async function startConversationalAI() {
         frameIntervalMs: 40,
       },
       smartBufferConfig: {
-        mode: 'adaptive',
+        mode: "adaptive",
         networkConditions: {
           latency: 50, // Current network latency in ms
-          jitter: 20,  // Network jitter in ms
+          jitter: 20, // Network jitter in ms
         },
       },
       onBufferHealth: (metrics) => {
         // Monitor buffer health for production telemetry
         if (metrics.underrunCount > 0) {
-          console.warn('⚠️ Buffer underruns detected:', metrics);
+          console.warn("⚠️ Buffer underruns detected:", metrics);
         }
-        console.log('📊 Buffer health:', {
+        console.log("📊 Buffer health:", {
           state: metrics.bufferHealthState,
           currentMs: metrics.currentBufferMs,
-          utilization: Math.round((metrics.currentBufferMs / 300) * 100) + '%'
+          utilization: Math.round((metrics.currentBufferMs / 300) * 100) + "%",
         });
-      }
+      },
     });
 
     // 3. Stream audio chunks as they arrive
-    async function streamAudioChunk(base64Audio: string, isFirst: boolean, isFinal: boolean) {
+    async function streamAudioChunk(
+      base64Audio: string,
+      isFirst: boolean,
+      isFinal: boolean
+    ) {
       await ExpoPlayAudioStream.playAudioBuffered(
         base64Audio,
-        'conversation-turn-1',
+        "conversation-turn-1",
         isFirst,
         isFinal
       );
@@ -95,9 +104,8 @@ async function startConversationalAI() {
 
     // 4. Handle turn completion
     async function completeTurn() {
-      await ExpoPlayAudioStream.stopBufferedAudioStream('conversation-turn-1');
+      await ExpoPlayAudioStream.stopBufferedAudioStream("conversation-turn-1");
     }
-
   } catch (error) {
     console.error("Conversational AI setup failed:", error);
   }
@@ -113,7 +121,7 @@ import {
   ExpoPlayAudioStream,
   EncodingTypes,
   PlaybackModes,
-} from "expo-audio-stream";
+} from "@saltmango/expo-audio-stream";
 
 // Production setup for simultaneous record/playback with AEC
 async function startVoiceProcessing() {
@@ -146,10 +154,9 @@ async function startVoiceProcessing() {
     // Play responses while recording continues
     await ExpoPlayAudioStream.playSound(
       responseAudioBase64,
-      'response-turn-1',
+      "response-turn-1",
       EncodingTypes.PCM_S16LE
     );
-
   } catch (error) {
     console.error("Voice processing failed:", error);
     subscription?.remove();
@@ -165,7 +172,7 @@ For maximum performance with large audio files:
 import {
   ExpoPlayAudioStream,
   EncodingTypes,
-} from "expo-audio-stream";
+} from "@saltmango/expo-audio-stream";
 
 // Use binary data instead of base64 for better performance
 async function processBinaryAudio() {
@@ -176,7 +183,7 @@ async function processBinaryAudio() {
   // Play binary audio data directly (no base64 conversion)
   await ExpoPlayAudioStream.playSound(
     uint8Array, // Binary data - faster than base64
-    'binary-turn-1',
+    "binary-turn-1",
     EncodingTypes.PCM_S16LE
   );
 
@@ -184,7 +191,7 @@ async function processBinaryAudio() {
   const arrayBuffer = await fetchAudioData();
   await ExpoPlayAudioStream.playSound(
     arrayBuffer, // Also supported
-    'buffer-turn-1',
+    "buffer-turn-1",
     EncodingTypes.PCM_F32LE
   );
 }
@@ -197,7 +204,7 @@ import {
   ExpoPlayAudioStream,
   EncodingTypes,
   PlaybackModes,
-} from "expo-audio-stream";
+} from "@saltmango/expo-audio-stream";
 
 // Example of standard recording and playback with specific encoding
 async function handleStandardRecording() {
@@ -269,7 +276,7 @@ import {
   ExpoPlayAudioStream,
   EncodingTypes,
   PlaybackModes,
-} from "expo-audio-stream";
+} from "@saltmango/expo-audio-stream";
 
 // Example of simultaneous recording and playback with voice processing
 async function handleSimultaneousRecordAndPlay() {
@@ -353,6 +360,7 @@ The Expo Play Audio Stream module provides the following methods:
   - `useDefault`: When true, resets to default configuration regardless of other parameters
 
   **Playback Modes:**
+
   - `REGULAR`: Standard audio playback (default)
   - `VOICE_PROCESSING`: Optimized for voice with hardware echo cancellation (AEC)
   - `CONVERSATION`: Full-duplex voice communication with AEC (recommended for conversational AI)
@@ -426,6 +434,7 @@ Note: When playing audio, you can use the special turnId `"supspend-sound-events
 ### Types
 
 **Core Audio Types:**
+
 - `Encoding`: Defines the audio encoding format, either 'pcm_f32le' (32-bit float) or 'pcm_s16le' (16-bit signed integer)
 - `EncodingTypes`: Constants for audio encoding formats (EncodingTypes.PCM_F32LE, EncodingTypes.PCM_S16LE)
 - `PlaybackMode`: Defines different playback modes ('regular', 'voiceProcessing', or 'conversation')
@@ -435,12 +444,14 @@ Note: When playing audio, you can use the special turnId `"supspend-sound-events
 - `AudioDataType`: Union type for audio data: `string | Uint8Array | ArrayBuffer` (supports both base64 and binary formats)
 
 **Event Types:**
+
 - `AudioEvents`: Enumeration of event names emitted by the module.
 - `DeviceReconnectedReason`: Enumeration of reasons for device reconnection events.
 - `DeviceReconnectedEventPayload`: Payload type for device reconnection events.
 - `SuspendSoundEventTurnId`: Constant turn ID that suppresses sound events for a specific playback.
 
 **Buffer Management Types:**
+
 - `IAudioBufferConfig`: Configuration for the jitter buffer (sizes, thresholds, timing, sampleRate).
 - `IAudioPlayPayload`: Structured payload used when enqueuing buffered audio frames.
 - `IAudioFrame`: Individual audio frame representation used by buffering internals.
@@ -524,6 +535,7 @@ The module implements several audio optimizations for voice recording:
   - Voice optimization
 
 **Voice Processing Modes:**
+
 - `VOICE_PROCESSING`: Enables AEC for voice calls and processing
 - `CONVERSATION`: Full-duplex communication with AEC (recommended for AI assistants)
 
@@ -550,6 +562,7 @@ The module includes several performance optimizations for production use:
 - **Memory Pooling**: Pre-allocated buffers reduce allocation overhead
 
 For best performance in production:
+
 1. Use binary data formats (Uint8Array/ArrayBuffer) instead of base64
 2. Configure appropriate buffer sizes for your network conditions
 3. Use `VOICE_PROCESSING` or `CONVERSATION` modes for voice applications
@@ -557,7 +570,13 @@ For best performance in production:
 
 ## Contributions 🤝
 
-Contributions to the Expo Audio Stream module are welcome! If you encounter any issues or have ideas for improvements, feel free to open an issue or submit a pull request on the [GitHub repository](https://github.com/expo/expo-audio-stream).
+Contributions to the Expo Audio Stream module are welcome! If you encounter any issues or have ideas for improvements, feel free to open an issue or submit a pull request on the [GitHub repository](https://github.com/SaltMango/expo-audio-stream).
+
+## Credits 🙏
+
+This package is based on the original work by [mykin-ai/expo-audio-stream](https://github.com/mykin-ai/expo-audio-stream). This fork adds production-ready features including adaptive buffering, hardware echo cancellation, and performance optimizations.
+
+Special thanks to the original author and all contributors! 🙏
 
 ## License 📄
 

@@ -1,7 +1,7 @@
 {
-  "name": "@mykin-ai/expo-audio-stream",
+  "name": "@saltmango/expo-audio-stream",
   "version": "0.3.0",
-  "description": "Expo Play Audio Stream module",
+  "description": "Expo Play Audio Stream module - Enhanced fork with production-ready audio streaming",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "source": "src/index.ts",
@@ -20,15 +20,37 @@
     "react-native",
     "expo",
     "expo-play-audio-stream",
-    "ExpoPlayAudioStream"
+    "ExpoPlayAudioStream",
+    "audio-stream",
+    "audio-recording",
+    "audio-playback",
+    "voice-processing",
+    "adaptive-buffering",
+    "real-time-audio",
+    "echo-cancellation"
   ],
-  "repository": "https://github.com/mykin-ai/expo-audio-stream",
+  "repository": "https://github.com/SaltMango/expo-audio-stream",
   "bugs": {
-    "url": "https://github.com/mykin-ai/expo-audio-stream/issues"
+    "url": "https://github.com/SaltMango/expo-audio-stream/issues"
   },
-  "author": "pax <nzpopa@users.noreply.github.com> (https://github.com/hyphen-id)",
+  "author": "SaltMango (https://github.com/SaltMango)",
+  "contributors": [
+    "Original work by mykin-ai (https://github.com/mykin-ai/expo-audio-stream)"
+  ],
   "license": "MIT",
-  "homepage": "https://github.com/mykin-ai/expo-audio-stream#readme",
+  "homepage": "https://github.com/SaltMango/expo-audio-stream#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "build/",
+    "ios/",
+    "android/",
+    "app.plugin.js",
+    "expo-module.config.json",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "@expo/config-plugins": "~54.0.2",
     "@types/react": "~18.3.27",
