@@ -30,7 +30,10 @@
     "real-time-audio",
     "echo-cancellation"
   ],
-  "repository": "https://github.com/SaltMango/expo-audio-stream",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SaltMango/expo-audio-stream.git"
+  },
   "bugs": {
     "url": "https://github.com/SaltMango/expo-audio-stream/issues"
   },
