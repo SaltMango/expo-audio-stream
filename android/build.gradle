@@ -22,7 +22,7 @@ buildscript {
     if (ext.has("kotlinVersion")) {
       ext.kotlinVersion()
     } else {
-      ext.safeExtGet("kotlinVersion", "1.9.22")
+      ext.safeExtGet("kotlinVersion", "1.9.23")
     }
   }
 
@@ -53,16 +53,15 @@ afterEvaluate {
 android {
   compileSdkVersion safeExtGet("compileSdkVersion", 34)
 
-  def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
-  if (agpVersion.tokenize('.')[0].toInteger() < 8) {
-    compileOptions {
-      sourceCompatibility JavaVersion.VERSION_11
-      targetCompatibility JavaVersion.VERSION_11
-    }
+  def javaVersion = JavaVersion.VERSION_17
+  
+  compileOptions {
+    sourceCompatibility javaVersion
+    targetCompatibility javaVersion
+  }
 
-    kotlinOptions {
-      jvmTarget = JavaVersion.VERSION_11.majorVersion
-    }
+  kotlinOptions {
+    jvmTarget = safeExtGet("jvmTarget", "17")
   }
 
   namespace "expo.modules.audiostream"
@@ -88,5 +87,5 @@ repositories {
 
 dependencies {
   implementation project(':expo-modules-core')
-  implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${getKotlinVersion()}"
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:${getKotlinVersion()}"
 }
