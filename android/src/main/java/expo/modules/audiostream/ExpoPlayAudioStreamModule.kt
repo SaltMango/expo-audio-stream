@@ -20,6 +20,10 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.typedarray.Uint8Array
 import expo.modules.kotlin.typedarray.TypedArray
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlin.math.log
 
 
@@ -201,8 +205,12 @@ class ExpoPlayAudioStreamModule : Module(), EventSender {
             audioPlaybackManager.playAudio(chunk, turnId, promise, pcmEncoding)
         }
 
-        // JSI Binary Data Transfer - Zero-copy audio playback with TypedArray
-        AsyncFunction("playSoundBinary") { audioData: Uint8Array, turnId: String, encoding: String?, promise: Promise ->
+        // JSI Binary Data Transfer - Safe audio playback with TypedArray
+        // CRITICAL: Use Function (sync) instead of AsyncFunction to avoid GC race condition.
+        // The Uint8Array's underlying ArrayBuffer can be garbage collected if we defer
+        // toDirectBuffer() to a background thread. By using Function, we copy the data
+        // synchronously on the JS thread before dispatching async playback work.
+        Function("playSoundBinary") { audioData: Uint8Array, turnId: String, encoding: String? ->
             val pcmEncoding = when (encoding) {
                 "pcm_f32le" -> PCMEncoding.PCM_F32LE
                 "pcm_s16le", null -> PCMEncoding.PCM_S16LE
@@ -211,11 +219,20 @@ class ExpoPlayAudioStreamModule : Module(), EventSender {
                     PCMEncoding.PCM_S16LE
                 }
             }
-            // Convert TypedArray to ByteArray directly (zero-copy from JSI)
+            
+            // SAFE: Copy data synchronously on JS thread before GC can occur
             val byteArray = audioData.toDirectBuffer().let { buffer ->
                 ByteArray(buffer.remaining()).also { buffer.get(it) }
             }
-            audioPlaybackManager.playAudioBinary(byteArray, turnId, promise, pcmEncoding)
+            
+            // Dispatch playback asynchronously - byteArray is now a safe Kotlin copy
+            CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+                try {
+                    audioPlaybackManager.playAudioBinaryFireAndForget(byteArray, turnId, pcmEncoding)
+                } catch (e: Exception) {
+                    Log.e(Constants.TAG, "playSoundBinary playback failed", e)
+                }
+            }
         }
 
         AsyncFunction("playWav") { chunk: String, promise: Promise ->

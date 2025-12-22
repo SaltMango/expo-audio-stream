@@ -483,13 +483,21 @@ export class ExpoPlayAudioStream {
   // ============ JSI BINARY DATA METHODS ============
 
   /**
-   * JSI Binary: Plays audio directly from Uint8Array (zero-copy path).
+   * JSI Binary: Plays audio directly from Uint8Array.
    * This bypasses Base64 encoding/decoding for ~33% less overhead and better performance.
+   * 
+   * **Platform Behavior:**
+   * - **Android**: Data is copied synchronously on the JS thread to avoid GC race conditions,
+   *   then playback is dispatched asynchronously. The Promise resolves immediately after
+   *   the data is safely copied. Use `SoundStarted` and `SoundChunkPlayed` events to track
+   *   actual playback completion.
+   * - **iOS**: Returns a Promise that resolves when the audio chunk is enqueued for playback.
+   * 
    * @param {Uint8Array} audioData - Raw PCM audio data as Uint8Array.
-   * @param {string} turnId - The turn ID.
+   * @param {string} turnId - The turn ID for queue management.
    * @param {string} [encoding] - The encoding format ('pcm_f32le' or 'pcm_s16le').
-   * @returns {Promise<void>}
-   * @throws {Error} If the audio fails to play.
+   * @returns {Promise<void>} Resolves when data is enqueued (not when playback completes).
+   * @throws {Error} If the audio fails to be enqueued.
    */
   static async playSoundBinary(
     audioData: Uint8Array,
@@ -499,6 +507,9 @@ export class ExpoPlayAudioStream {
     try {
       // Check if native module supports binary playback
       if (typeof ExpoPlayAudioStreamModule.playSoundBinary === 'function') {
+        // On Android, this is synchronous (data copied on JS thread to avoid GC race).
+        // On iOS, this returns a Promise.
+        // Using await handles both cases correctly.
         await ExpoPlayAudioStreamModule.playSoundBinary(
           audioData,
           turnId,

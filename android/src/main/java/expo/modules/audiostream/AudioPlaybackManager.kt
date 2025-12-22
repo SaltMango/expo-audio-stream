@@ -312,6 +312,65 @@ class AudioPlaybackManager(
         }
     }
 
+    /**
+     * JSI Binary Data Transfer - Fire-and-forget version for synchronous JS calls
+     * 
+     * This method is designed to be called from a synchronous Function (not AsyncFunction)
+     * to avoid GC race conditions with Uint8Array. The data has already been copied to a
+     * ByteArray on the JS thread, so it's safe to process asynchronously here.
+     * 
+     * Completion is signaled via events (SOUND_STARTED_EVENT_NAME, SOUND_CHUNK_PLAYED_EVENT_NAME)
+     * rather than Promises.
+     */
+    fun playAudioBinaryFireAndForget(audioData: ByteArray, turnId: String, encoding: PCMEncoding = PCMEncoding.PCM_S16LE) {
+        coroutineScope.launch {
+            if (processingChannel.isClosedForSend || playbackChannel.isClosedForSend) {
+                Log.d("ExpoPlayStreamModule", "Re-initializing channels (fire-and-forget)")
+                initializeChannels()
+            }
+            Log.d("ExpoPlayStreamModule", "PlayAudioBinaryFireAndForget input $turnId with ${audioData.size} bytes, encoding $encoding")
+            
+            // Update the current turnId
+            setCurrentTurnId(turnId)
+            
+            isMuted = false
+            
+            // Process binary data directly without Base64 decode
+            try {
+                val audioDataWithoutRIFF = removeRIFFHeaderIfNeeded(audioData)
+                val floatAudioData = convertPCMDataToFloatArray(audioDataWithoutRIFF, encoding)
+                
+                // Check if this is the first chunk
+                val isFirstChunk = segmentsLeftToPlay == 0 && 
+                                  playbackChannel.isEmpty && 
+                                  (!hasSentSoundStartedEvent || !isPlaying)
+                                  
+                if (isFirstChunk && turnId != SUSPEND_SOUND_EVENT_TURN_ID) {
+                    sendSoundStartedEvent()
+                    hasSentSoundStartedEvent = true
+                }
+                
+                // Create a no-op promise for internal use (AudioChunk requires one)
+                val noOpPromise = object : Promise {
+                    override fun resolve(value: Any?) { /* no-op */ }
+                    override fun reject(code: String, message: String?, cause: Throwable?) { 
+                        Log.e("ExpoPlayStreamModule", "Fire-and-forget playback error: $code - $message", cause)
+                    }
+                }
+                
+                playbackChannel.send(AudioChunk(floatAudioData, noOpPromise, turnId))
+                segmentsLeftToPlay++
+                
+                if (!isPlaying) {
+                    Log.d("ExpoPlayStreamModule", "Start Playback (binary fire-and-forget)")
+                    startPlayback()
+                }
+            } catch (e: Exception) {
+                Log.e("ExpoPlayStreamModule", "Error in playAudioBinaryFireAndForget: ${e.message}", e)
+            }
+        }
+    }
+
     fun setCurrentTurnId(turnId: String) {
         // Reset tracking flags when turnId changes
         if (currentTurnId != turnId) {

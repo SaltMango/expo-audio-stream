@@ -223,7 +223,11 @@ public class ExpoPlayAudioStreamModule: Module, AudioStreamManagerDelegate, Micr
             }
         }
         
-        // JSI Binary Data Transfer - Zero-copy audio playback with TypedArray
+        // JSI Binary Data Transfer - Audio playback with TypedArray
+        // NOTE: Unlike Android, iOS is safe with AsyncFunction because Swift's Data type
+        // is a value type that receives a copy of the bytes during argument conversion.
+        // The conversion happens synchronously on the main thread before async dispatch,
+        // so JS garbage collection cannot affect the Data instance.
         AsyncFunction("playSoundBinary") { (audioData: Data, turnId: String, encoding: String?, promise: Promise) in
             Logger.debug("Play sound binary - \(audioData.count) bytes")
             do {
