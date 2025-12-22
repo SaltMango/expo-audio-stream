@@ -118,7 +118,9 @@ class AudioPlaybackManager(
                 } else {
                     // For media mode, reduce volume
                     try {
-                        audioTrack.setVolume(0.3f)
+                        if (::audioTrack.isInitialized && audioTrack.state != AudioTrack.STATE_UNINITIALIZED) {
+                            audioTrack.setVolume(0.3f)
+                        }
                     } catch (e: Exception) {
                         Log.e("ExpoPlayStreamModule", "Error ducking audio: ${e.message}")
                     }
@@ -464,8 +466,13 @@ class AudioPlaybackManager(
     fun setVolume(volume: Double, promise: Promise) {
         val clampedVolume = max(0.0, min(volume, 100.0)) / 100.0
         try {
-            audioTrack.setVolume(clampedVolume.toFloat())
-            promise.resolve(null)
+            if (::audioTrack.isInitialized && audioTrack.state != AudioTrack.STATE_UNINITIALIZED) {
+                audioTrack.setVolume(clampedVolume.toFloat())
+                promise.resolve(null)
+            } else {
+                Log.w("ExpoPlayStreamModule", "AudioTrack not ready for setVolume")
+                promise.resolve(null) // Resolve anyway to not block the caller
+            }
         } catch (e: Exception) {
             promise.reject("ERR_SET_VOLUME", e.message, e)
         }
@@ -623,11 +630,20 @@ class AudioPlaybackManager(
                         
                         if (currentTurnId == chunk.turnId) {
                             playChunk(chunk)
+                        } else {
+                            // TurnId mismatch - resolve promise to avoid leaks
+                            if (!chunk.isPromiseSettled) {
+                                chunk.isPromiseSettled = true
+                                chunk.promise.resolve(null)
+                            }
                         }
 
                     } else {
                         // If not playing, we should resolve the promise to avoid leaks
-                        chunk.promise.resolve(null)
+                        if (!chunk.isPromiseSettled) {
+                            chunk.isPromiseSettled = true
+                            chunk.promise.resolve(null)
+                        }
                     }
                 }
             }
@@ -636,18 +652,59 @@ class AudioPlaybackManager(
     private suspend fun playChunk(chunk: AudioChunk) {
         withContext(Dispatchers.IO) {
             try {
+                // SAFETY: Check if audioTrack is initialized and in a valid state before use.
+                // This prevents crashes when audioTrack is released during concurrent operations.
+                if (!::audioTrack.isInitialized) {
+                    Log.w("ExpoPlayStreamModule", "AudioTrack not initialized, skipping chunk")
+                    if (!chunk.isPromiseSettled) {
+                        chunk.isPromiseSettled = true
+                        chunk.promise.resolve(null)
+                    }
+                    return@withContext
+                }
+                
+                if (audioTrack.state == AudioTrack.STATE_UNINITIALIZED) {
+                    Log.w("ExpoPlayStreamModule", "AudioTrack in uninitialized state, skipping chunk")
+                    if (!chunk.isPromiseSettled) {
+                        chunk.isPromiseSettled = true
+                        chunk.promise.resolve(null)
+                    }
+                    return@withContext
+                }
+                
                 val chunkSize = chunk.audioData.size
                 
                 Log.d("ExpoPlayStreamModule", "Playing chunk with $chunkSize frames")
 
                 suspendCancellableCoroutine { continuation ->
+                    // Double-check state inside the continuation (race condition protection)
+                    if (!::audioTrack.isInitialized || audioTrack.state == AudioTrack.STATE_UNINITIALIZED) {
+                        Log.w("ExpoPlayStreamModule", "AudioTrack became invalid, aborting chunk")
+                        if (!chunk.isPromiseSettled) {
+                            chunk.isPromiseSettled = true
+                            chunk.promise.resolve(null)
+                        }
+                        continuation.resumeWith(Result.success(Unit))
+                        return@suspendCancellableCoroutine
+                    }
+                    
                     // Write the audio data
-                    val written = audioTrack.write(
-                        chunk.audioData,
-                        0,
-                        chunkSize,
-                        AudioTrack.WRITE_BLOCKING
-                    )
+                    val written = try {
+                        audioTrack.write(
+                            chunk.audioData,
+                            0,
+                            chunkSize,
+                            AudioTrack.WRITE_BLOCKING
+                        )
+                    } catch (e: IllegalStateException) {
+                        Log.e("ExpoPlayStreamModule", "AudioTrack write failed: ${e.message}")
+                        if (!chunk.isPromiseSettled) {
+                            chunk.isPromiseSettled = true
+                            chunk.promise.resolve(null)
+                        }
+                        continuation.resumeWith(Result.success(Unit))
+                        return@suspendCancellableCoroutine
+                    }
                     
                     Log.d("ExpoPlayStreamModule", "Chunk written: $written frames")
                     
